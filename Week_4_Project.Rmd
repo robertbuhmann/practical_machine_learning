@@ -1,0 +1,132 @@
+---
+title: "Practical Machine Learning"
+author: "Rob Buhmann"
+date: "30/01/2024"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+### Read in data
+
+```{r}
+train <- read.csv("train_wk4.csv")
+test <- read.csv("test_wk4.csv")
+```
+
+### Check dataframe structure & remove unnecessary variables
+
+```{r}
+str(train)
+train <- train[,-c(1:7)]
+test <- test[,-c(1:7)]
+```
+
+### Convert classe to a factor variable
+```{r}
+train$classe <- as.factor(train$classe)
+```
+
+### Remove columns with missing data
+```{r}
+remove <- c("kurtosis", "skewness", "yaw")
+cols_to_remove <- colnames(train)[grep(paste(remove, collapse = "|"),
+                                       colnames(train))]
+train <- train[,!(colnames(train) %in% cols_to_remove)]
+test <- test[,!(colnames(test) %in% cols_to_remove)]
+train <- train[,colSums(is.na(train))==0]
+test <- test[,colSums(is.na(test))==0]
+```
+
+
+### Plot classe variable
+```{r}
+library(ggplot2)
+ggplot(train, aes(x = classe))+
+  geom_histogram(stat = "count", col = "black", fill = "purple")+
+  theme_classic()
+```
+
+### Build a tree classification model
+```{r}
+library(tree)
+model_tree <- tree(classe~., data = train, method = "class")
+summary(model_tree)
+```
+
+### Plot the tree model
+```{r}
+plot(model_tree)
+text(model_tree, pretty = 0, cex = 0.5)
+```
+
+### Predict on training data
+```{r}
+library(caret)
+set.seed(123)
+pred_tree <- predict(model_tree, train, type = "class")
+result_train_tree <- confusionMatrix(pred_tree, train$classe)
+result_train_tree$overall[[1]]
+result_train_tree$overall[[3]]
+result_train_tree$overall[[4]]
+```
+
+The 95% confidence interval for the accuracy of the tree model spans 0.66 to 0.67, this gives us some idea of the out of sample error rate.
+
+### Perform cross-validation
+```{r}
+cv_tree <- cv.tree(model_tree, FUN = prune.misclass)
+cv_tree
+```
+
+### Prune tree
+After performing cross validation, we can see the 17 leaf tree is the best performing model. We will prune the tree to include this number of nodes.
+```{r}
+prune_model_tree <- prune.misclass(model_tree, best = 17)
+```
+
+### Predict on the training data again
+Let's see if pruning the tree improves accuracy
+```{r}
+install.packages("caret")
+library(caret)
+pred <- predict(prune_model_tree, train, type = "class")
+pred_result <- confusionMatrix(pred, train$classe)
+pred_result$overall[[1]]
+```
+
+The accuracy is similar between the initial model and the pruned model.
+
+Next we'll build a random forest model.
+
+### Random forest model
+when bagging random forest models we typically want to use a subset of predictors to build each tree, the square root of the number of predictors is usually used to build each tree, so we will set mtry = 7.
+```{r}
+library(randomForest)
+set.seed(123)
+model_rf <- randomForest(classe~., data = train, 
+                         mtry = 7, importance = T)
+```
+
+### Predict using the random forest model
+As the trees in a random forest model are fit to bootstrapped subsets of predictors, there is no need to perform cross-validation on our random forest model
+```{r}
+library(caret)
+pred <- predict(model_rf, train, type = "class")
+result <- confusionMatrix(pred, train$classe)
+result$overall[[1]]
+result$overall[[3]]
+result$overall[[4]]
+```
+
+As we can see the confidence interval around the accuracy when predicting using the random forest model ranges from 0.99 to 1.00, resulting in better performance of this model compared with the classification tree model.
+
+### Lets predict the test cases
+```{r}
+pred_test <- predict(model_rf, test)
+pred_test
+```
+
+### Final verdict
+We can clearly see the random forest model (Accuracy = 0.99 to 1.00) performed better than the classification tree model (Accuracy = 0.66 to 0.67). We performed cross validation across a range of k's when building the tree model, the ifnal model result in 16 node's. Given each tree within the random forest model is built using a subset of predictors, we do not need to perform cross-validation to estimate the error rate. Using the random fores model we would expect, in the worst case, our out of sample error rate to be 0.001 (0.1%). Given we are predicting 20 cases in the test data set, we would be confiden all of these cases have been predicted correctly.
